@@ -8,48 +8,35 @@ from oauth2client import file
 from oauth2client import tools
 from oauth2client.client import OAuth2WebServerFlow
 import datetime
-import gsheet_connector as gsheet
 import csv
 from datetime import date, datetime, timedelta
 import os.path
 from os import path
+from dateutil import parser
 
-def get_auth():
-    scope = 'https://www.googleapis.com/auth/webmasters.readonly'
-    creds = 'client_secrets.json'
-    client_secrets = os.path.join(os.path.dirname(creds),creds)
-    flow = client.flow_from_clientsecrets(client_secrets,scope=scope,message=tools.message_if_missing(client_secrets))
+class Console:
 
-    #Store credentials so I don't have to log in everytime
-    storage = file.Storage('creds.dat')
-    credentials = storage.get()
-    if credentials is None or credentials.invalid:
-        credentials = tools.run_flow(flow, storage)    
+    def __init__(self,url,creds):
+        scope = 'https://www.googleapis.com/auth/webmasters.readonly'
+        client_secrets = os.path.join(os.path.dirname(creds),creds)
+        flow = client.flow_from_clientsecrets(client_secrets,scope=scope,message=tools.message_if_missing(client_secrets))
 
-    #Create an httplib2.Http object and authorize it with credentials
-    http = httplib2.Http()
-    http = credentials.authorize(http)
+        #Store credentials so I don't have to log in everytime
+        storage = file.Storage('creds.dat')
+        credentials = storage.get()
+        if credentials is None or credentials.invalid:
+            credentials = tools.run_flow(flow, storage)    
 
-    #Create service object, then return it 
-    service = build('webmasters', 'v3', http=http)
-    return service
+        #Create an httplib2.Http object and authorize it with credentials
+        http = httplib2.Http()
+        http = credentials.authorize(http)
 
-def execute_request(service, property_uri, request):
-    return service.searchanalytics().query(siteUrl=property_uri, body=request).execute()
+        #Create service object, then return it 
+        self.service = build('webmasters', 'v3', http=http)
+        self.url=url
 
-def upload_sheet(table,title):
-    sheet = gsheet.g("1rJQcN77v1RfBmDFpqh11kINBV4EZIK98KWCpBAO4ups")
-    
-    #Check if there's a tab that matches the title. If not, make a new one. Each tab will be overwritten each program run.
-    tabs = sheet.getSheetNames()
-    match=False
-    for tab in tabs:
-        if tab.title == title:
-            match=True
-    if match==False:
-        sheet.setNewSheet(title)
-    
-    sheet.setGoogleSheet(table,title)
+    def execute_request(self, request):
+        return self.service.searchanalytics().query(siteUrl=self.url, body=request).execute()
 
 def save_table(response, title, key_names, start_date):
     print ("Month: " + start_date)
@@ -75,6 +62,7 @@ def save_table(response, title, key_names, start_date):
 
     #if a file already exists, load the old values and add the new table below it
     if path.exists(filename):
+        print ("The CSV file already exists. The script will add the new values to the top.")
         old_table = pd.read_csv(filename)
         table = pd.concat([table,old_table],join_axes=[table.columns])
 
@@ -87,10 +75,13 @@ def save_table(response, title, key_names, start_date):
     return table
 
 """
-Program use
+Program use:
 Use this script to download responses from the Google Search Console API and save them to a Google Sheet and CSVs.
 
-OAuth is a pain
+Python version:
+Please ensure you use Python 3. You'll get unicode errors otherwise.
+
+OAuth is a pain:
 To use this program, you'll need two keys:
 1.) Go to https://console.developers.google.com/apis/dashboard
 2.) Create a project. Give it access to the Search Console and Google Spreadsheet APIs.
@@ -101,35 +92,55 @@ To use this program, you'll need two keys:
     This should work indefinitely. You'll need to share the spreadsheet with the email associated with your credential.
 """
 
-#Change these dates to change the fetching range
-dates = pd.date_range('2018-03-01','2019-06-01', freq='MS').strftime("%Y-%m-%d").tolist()
-url = "https://www.redhat.com"
-service = get_auth()
+#Get first day of current month and previous month
+end_date = datetime.today().replace(day=1)
+start_date = (end_date - timedelta(days=1)).replace(day=1)
 
-#This go thing skips the first value in the list of dates so there's both a start date and an end date for the API to process
-go=False
-for date in dates:
-    if go==True:
+#Format datetime objects as strings
+start_date = start_date.strftime("%Y-%m-%d")
+end_date = end_date.strftime("%Y-%m-%d")
+
+#Uncomment and change these dates to change the fetching range. The script will grab values between these dates one month at a time. Otherwise, the program will just grab last month's data.
+start_date = '2019-05-01'
+end_date = '2019-06-01'
+
+print ("Start date: " + start_date)
+print ("End date: " + end_date)
+
+#If today's date is less than 3 and you're request a report including this month, don't execute because the data isn't available yet
+#Yes, this line of code is an abomination
+if int(datetime.today().strftime("%d"))<3 and parser.parse(end_date).strftime("%Y-%m-%d")==datetime.today().replace(day=1).strftime("%Y-%m-%d"):
+    print ("Error: Data not available yet. Please wait until the 4th day of this month for last month's data to become available.")
+
+#Also check if we're asking for future data
+elif parser.parse(end_date)>datetime.now():
+    print ("Error: I can't see into the future.")
+
+else:
+    dates = pd.date_range(start_date,end_date, freq='MS').strftime("%Y-%m-%d").tolist()
+    print (dates)
+
+    #Create Console object
+    url = "https://www.redhat.com"
+    creds = "client_secrets.json"
+    service = Console(url,creds)
+
+    #This go variable skips the first value in the list of dates so there's both a start date and an end date for the API to process
+    go=False
+    for date in dates:
+        if go==True:
+                    
+            print ("Running top queries request...")
+            request = {
+                'startDate': prev_date,
+                'endDate': date,
+                'dimensions': ['query','page'],
+                'rowLimit': 25000
+            }
+            response = service.execute_request(request)
+            table = save_table(response, 'Top Queries', request['dimensions'], prev_date)
         
-        start_date = prev_date
-        end_date = date
-        
-        print ("Running top queries request...")
-        request = {
-            'startDate': start_date,
-            'endDate': end_date,
-            'dimensions': ['query','page'],
-            'rowLimit': 25000
-        }
-        response = execute_request(service, url, request)
-        table = save_table(response, 'Top Queries', request['dimensions'], start_date)
-    
-    prev_date = date
-    go=True
+        prev_date = date
+        go=True
 
-#This uploads the full table as a sheet
-#upload_sheet(table,"Top Queries")
-
-print ("Done.")
-
-#Go back as far as possible, then 3 days after end of month create a new sheet
+    print ("Done.")
