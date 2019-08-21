@@ -84,12 +84,10 @@ Please ensure you use Python 3. You'll get unicode errors otherwise.
 OAuth is a pain:
 To use this program, you'll need two keys:
 1.) Go to https://console.developers.google.com/apis/dashboard
-2.) Create a project. Give it access to the Search Console and Google Spreadsheet APIs.
+2.) Create a project. Give it access to the Search Console API.
 3.) Create an OAuth client ID credential for Search Console. Download it as a JSON and save it as client_secrets.json. When you login, you'll
     login via a web browser and get credentials good for 30 days. They'll be stored as creds.dat. This is problematic for a webserver, since
     this requires human interaction, but I get permissions errors when I try to use a service account key.
-4.) Create a Service account key for for Google Spreadsheet. Download it as a JSON and save it as search_client_gsheet_client_secrets.json.
-    This should work indefinitely. You'll need to share the spreadsheet with the email associated with your credential.
 """
 
 #Get first day of current month and previous month
@@ -101,7 +99,7 @@ start_date = start_date.strftime("%Y-%m-%d")
 end_date = end_date.strftime("%Y-%m-%d")
 
 #Uncomment and change these dates to change the fetching range. The script will grab values between these dates one month at a time. Otherwise, the program will just grab last month's data.
-start_date = '2019-05-01'
+start_date = '2019-03-01'
 end_date = '2019-06-01'
 
 print ("Start date: " + start_date)
